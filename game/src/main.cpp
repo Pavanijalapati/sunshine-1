@@ -4,6 +4,8 @@
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
 
+
+
 Vector2 WraparoundScreen(Vector2 position)
 {
     Vector2 outPosition =
@@ -13,12 +15,10 @@ Vector2 WraparoundScreen(Vector2 position)
 
     };
     return outPosition;
-
 }
 
 int main(void)
 {
-
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "sunshine");
 
     rlImGuiSetup(true);
