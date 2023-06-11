@@ -1,76 +1,154 @@
-#include "rlImGui.h"
-#include"math.h"
+#include <iostream>
+#include <vector>
+#include "raylib.h"
+#include <raymath.h>
 
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
-
-
-
-Vector2 WraparoundScreen(Vector2 position)
+struct Circle
 {
-    Vector2 outPosition =
-    {
-        fmodf(position.x + SCREEN_WIDTH,SCREEN_WIDTH),
-        fmodf(position.y + SCREEN_HEIGHT,SCREEN_HEIGHT)
+    Vector2 center;
+    float radius;
+};
 
-    };
-    return outPosition;
-}
+class Rigidbody
+{
+public:
+    Vector2 position;
+    Vector2 velocity;
+};
+
+class Agent
+{
+public:
+    Rigidbody rigidbody;
+    Circle circle;
+    float maxSpeed;
+    float maxAcceleration;
+    Vector2 leftWhisker;
+    Vector2 rightWhisker;
+
+    void obstacleAvoidance(const Circle& obstacle, float avoidanceForce)
+    {
+        Vector2 ahead = Vector2Add(rigidbody.position, Vector2Scale(Vector2Normalize(rigidbody.velocity), 50.0f));
+        Vector2 ahead2 = Vector2Add(rigidbody.position, Vector2Scale(Vector2Normalize(rigidbody.velocity), 25.0f));
+
+        Vector2 avoidance = { 0, 0 };
+        bool collisionDetected = false;
+
+        if (CheckCollisionCircles(obstacle.center, obstacle.radius, circle.center, circle.radius))
+        {
+            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
+            collisionDetected = true;
+        }
+        else if (CheckCollisionCircleRec(obstacle.center, obstacle.radius, { ahead.x, ahead.y, circle.radius, circle.radius }))
+        {
+            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
+            collisionDetected = true;
+        }
+        else if (CheckCollisionCircleRec(obstacle.center, obstacle.radius, { ahead2.x, ahead2.y, circle.radius, circle.radius }))
+        {
+            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
+            collisionDetected = true;
+        }
+
+        if (collisionDetected)
+        {
+            avoidance = Vector2Normalize(avoidance);
+            avoidance = Vector2Scale(avoidance, avoidanceForce);
+
+            rigidbody.velocity = Vector2Add(rigidbody.velocity, avoidance);
+            float speed = Vector2Length(rigidbody.velocity);
+            if (speed > maxSpeed)
+            {
+                rigidbody.velocity = Vector2Scale(rigidbody.velocity, maxSpeed / speed);
+            }
+        }
+    }
+};
 
 int main(void)
 {
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "sunshine");
+    const int SCREEN_WIDTH = 1280;
+    const int SCREEN_HEIGHT = 720;
 
-    rlImGuiSetup(true);
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Agent Avoidance");
+    SetTargetFPS(60);
 
-    Vector2 position = { 100,100 }; //px
-    Vector2 velocity = { 10,0 };  //px/s
-    Vector2 acceleration = { 0,50 };   //px/s/s 
-    float maxSpeed = 1000;
-    float maxAccel = 1000;
+    Agent agent1;
+    agent1.rigidbody.position = { SCREEN_WIDTH / 2.0f - 100, SCREEN_HEIGHT / 2.0f };
+    agent1.rigidbody.velocity = { 2.0f, 2.0f };
+    agent1.maxSpeed = 20.0f;
+    agent1.maxAcceleration = 1.0f;
+    agent1.circle = { agent1.rigidbody.position, 20.0f };
+    agent1.leftWhisker = Vector2Rotate(Vector2Normalize(agent1.rigidbody.velocity), -45.0f);
+    agent1.rightWhisker = Vector2Rotate(Vector2Normalize(agent1.rigidbody.velocity), 45.0f);
 
-    SetTargetFPS(240);
+    Agent agent2;
+    agent2.rigidbody.position = { SCREEN_WIDTH / 2.0f + 100, SCREEN_HEIGHT / 2.0f };
+    agent2.rigidbody.velocity = { -2.0f, -2.0f };
+    agent2.maxSpeed = 20.0f;
+    agent2.maxAcceleration = 1.0f;
+    agent2.circle = { agent2.rigidbody.position, 20.0f };
+    agent2.leftWhisker = Vector2Rotate(Vector2Normalize(agent2.rigidbody.velocity), -45.0f);
+    agent2.rightWhisker = Vector2Rotate(Vector2Normalize(agent2.rigidbody.velocity), 45.0f);
+
+    std::vector<Circle> obstacles;
 
     while (!WindowShouldClose())
     {
-        const float dt = GetFrameTime();
+        float deltaTime = GetFrameTime();
+
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        {
+            Vector2 mousePos = GetMousePosition();
+            float obstacleRadius = 10.0f;
+            Circle obstacle = { mousePos, obstacleRadius };
+            obstacles.push_back(obstacle);
+        }
+
+        for (const Circle& obstacle : obstacles)
+        {
+            agent1.obstacleAvoidance(obstacle, 0.5f);
+            agent2.obstacleAvoidance(obstacle, 0.5f);
+        }
+
+        agent1.rigidbody.position.x += agent1.rigidbody.velocity.x * deltaTime;
+        agent1.rigidbody.position.y += agent1.rigidbody.velocity.y * deltaTime;
+        agent1.circle.center = agent1.rigidbody.position;
+
+        agent2.rigidbody.position.x += agent2.rigidbody.velocity.x * deltaTime;
+        agent2.rigidbody.position.y += agent2.rigidbody.velocity.y * deltaTime;
+        agent2.circle.center = agent2.rigidbody.position;
+
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        Vector2 a = { 2,2 };
-        Vector2 b = { 3,4 };
-        Vector2 myvec = a + b;
+        DrawCircleV(agent1.circle.center, agent1.circle.radius, SKYBLUE);
+        DrawCircleV(agent2.circle.center, agent2.circle.radius, ORANGE);
 
+        DrawLine(agent1.rigidbody.position.x, agent1.rigidbody.position.y,
+            agent1.rigidbody.position.x + agent1.leftWhisker.x * 60,
+            agent1.rigidbody.position.y + agent1.leftWhisker.y * 60, BLACK);
 
-        rlImGuiBegin();
-        ImGui::SliderFloat2("position", &(position.x), 0, SCREEN_WIDTH);
-        ImGui::DragFloat2("Velocity", &(velocity.x), -maxSpeed, maxSpeed);
-        ImGui::DragFloat2("acceleration", &(acceleration.x), 1, -maxAccel, maxAccel);
-        ImGui::LabelText("myvec", "(%f,%f)", myvec.x, myvec.y);
+        DrawLine(agent1.rigidbody.position.x, agent1.rigidbody.position.y,
+            agent1.rigidbody.position.x + agent1.rightWhisker.x * 60,
+            agent1.rigidbody.position.y + agent1.rightWhisker.y * 60, VIOLET);
 
-        rlImGuiEnd();
+        DrawLine(agent2.rigidbody.position.x, agent2.rigidbody.position.y,
+            agent2.rigidbody.position.x + agent2.leftWhisker.x * 60,
+            agent2.rigidbody.position.y + agent2.leftWhisker.y * 60, BLACK);
 
-        Vector2 displacement = velocity * dt;
-        velocity = velocity + acceleration * dt;
-        position = position + displacement;
+        DrawLine(agent2.rigidbody.position.x, agent2.rigidbody.position.y,
+            agent2.rigidbody.position.x + agent2.rightWhisker.x * 60,
+            agent2.rigidbody.position.y + agent2.rightWhisker.y * 60, VIOLET);
 
-        position = position + displacement + acceleration * 0.5f * dt * dt;  //acceleration
+        for (const Circle& obstacle : obstacles)
+        {
+            DrawCircleV(obstacle.center, obstacle.radius, GREEN);
+        }
 
-
-        DrawCircleV(position, 50, VIOLET);
-
-
-        DrawLineV(position, position + velocity, RED);
-        DrawLineV(position, position + acceleration, GREEN);
-
-        position = WraparoundScreen(position);
-
-        DrawFPS(10, 10);
         EndDrawing();
-
     }
 
-    rlImGuiShutdown();
     CloseWindow();
     return 0;
 }
