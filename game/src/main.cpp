@@ -1,154 +1,199 @@
 #include <iostream>
 #include <vector>
 #include "raylib.h"
-#include <raymath.h>
 
-struct Circle
+const int TILE_SIZE = 50; 
+
+enum class TileType
 {
-    Vector2 center;
-    float radius;
+    Floor,
+    Wall
 };
 
-class Rigidbody
+struct Tile
 {
-public:
-    Vector2 position;
-    Vector2 velocity;
+    TileType type;
+    std::vector<int> adjacencyList; 
 };
 
-class Agent
+class Tilemap
 {
 public:
-    Rigidbody rigidbody;
-    Circle circle;
-    float maxSpeed;
-    float maxAcceleration;
-    Vector2 leftWhisker;
-    Vector2 rightWhisker;
-
-    void obstacleAvoidance(const Circle& obstacle, float avoidanceForce)
+    Tilemap(int width, int height) : width(width), height(height)
     {
-        Vector2 ahead = Vector2Add(rigidbody.position, Vector2Scale(Vector2Normalize(rigidbody.velocity), 50.0f));
-        Vector2 ahead2 = Vector2Add(rigidbody.position, Vector2Scale(Vector2Normalize(rigidbody.velocity), 25.0f));
+        tiles.resize(width * height);
+    }
 
-        Vector2 avoidance = { 0, 0 };
-        bool collisionDetected = false;
+    Tile& getTile(int x, int y)
+    {
+        return tiles[y * width + x];
+    }
 
-        if (CheckCollisionCircles(obstacle.center, obstacle.radius, circle.center, circle.radius))
-        {
-            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
-            collisionDetected = true;
-        }
-        else if (CheckCollisionCircleRec(obstacle.center, obstacle.radius, { ahead.x, ahead.y, circle.radius, circle.radius }))
-        {
-            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
-            collisionDetected = true;
-        }
-        else if (CheckCollisionCircleRec(obstacle.center, obstacle.radius, { ahead2.x, ahead2.y, circle.radius, circle.radius }))
-        {
-            avoidance = Vector2Subtract(rigidbody.position, obstacle.center);
-            collisionDetected = true;
-        }
+    int getWidth() const
+    {
+        return width;
+    }
 
-        if (collisionDetected)
-        {
-            avoidance = Vector2Normalize(avoidance);
-            avoidance = Vector2Scale(avoidance, avoidanceForce);
+    int getHeight() const
+    {
+        return height;
+    }
 
-            rigidbody.velocity = Vector2Add(rigidbody.velocity, avoidance);
-            float speed = Vector2Length(rigidbody.velocity);
-            if (speed > maxSpeed)
+    void RandomLevel()
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
             {
-                rigidbody.velocity = Vector2Scale(rigidbody.velocity, maxSpeed / speed);
+                Tile& tile = getTile(x, y);
+                tile.type = (rand() % 5 == 0) ? TileType::Wall : TileType::Floor;
             }
         }
     }
+
+    void WallsAsNonTraversable()
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                Tile& tile = getTile(x, y);
+                if (tile.type == TileType::Wall)
+                {
+                    tile.adjacencyList.clear(); // Walls have no adjacency
+                }
+            }
+        }
+    }
+
+    void createAdjacencyList()
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                Tile& tile = getTile(x, y);
+                tile.adjacencyList.clear();
+
+                if (tile.type == TileType::Floor)
+                {
+                    if (y > 0 && getTile(x, y - 1).type == TileType::Floor)
+                        tile.adjacencyList.push_back((y - 1) * width + x);
+
+                    if (y < height - 1 && getTile(x, y + 1).type == TileType::Floor)
+                        tile.adjacencyList.push_back((y + 1) * width + x);
+
+                    if (x > 0 && getTile(x - 1, y).type == TileType::Floor)
+                        tile.adjacencyList.push_back(y * width + (x - 1));
+
+                    if (x < width - 1 && getTile(x + 1, y).type == TileType::Floor)
+                        tile.adjacencyList.push_back(y * width + (x + 1));
+                }
+            }
+        }
+    }
+
+    bool isTileTraversable(int x, int y)
+    {
+        if (x < 0 || x >= width || y < 0 || y >= height)
+            return false;
+
+        return getTile(x, y).type == TileType::Floor;
+    }
+
+    void draw()
+    {
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                Tile& tile = getTile(x, y);
+                Rectangle rect{ x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE };
+
+                switch (tile.type)
+                {
+                case TileType::Floor:
+                    DrawRectangleRec(rect, WHITE);
+                    break;
+
+                case TileType::Wall:
+                    DrawRectangleRec(rect, GRAY);
+                    break;
+                }
+
+                DrawRectangleLinesEx(rect, 1, BLACK);
+
+                // Draw adjacency circles and lines
+                if (tile.type == TileType::Floor)
+                {
+                    Vector2 center = { (rect.x + rect.width / 2), (rect.y + rect.height / 2) };
+                    DrawCircle(center.x, center.y, 5, GREEN);
+
+                    for (int adjTileIndex : tile.adjacencyList)
+                    {
+                        Tile& adjTile = tiles[adjTileIndex];
+                        Rectangle adjRect{ adjTileIndex % width * TILE_SIZE, adjTileIndex / width * TILE_SIZE, TILE_SIZE, TILE_SIZE };
+                        Vector2 adjCenter = { (adjRect.x + adjRect.width / 2), (adjRect.y + adjRect.height / 2) };
+                        DrawLineEx(center, adjCenter, 1, GREEN);
+                    }
+                }
+            }
+        }
+    }
+
+private:
+    int width;
+    int height;
+    std::vector<Tile> tiles;
 };
-
-int main(void)
+int main()
 {
-    const int SCREEN_WIDTH = 1280;
-    const int SCREEN_HEIGHT = 720;
+    const int screenWidth = 800;
+    const int screenHeight = 600;
 
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Agent Avoidance");
-    SetTargetFPS(60);
+    InitWindow(screenWidth, screenHeight, "Tilemap_Lab 4");
 
-    Agent agent1;
-    agent1.rigidbody.position = { SCREEN_WIDTH / 2.0f - 100, SCREEN_HEIGHT / 2.0f };
-    agent1.rigidbody.velocity = { 2.0f, 2.0f };
-    agent1.maxSpeed = 20.0f;
-    agent1.maxAcceleration = 1.0f;
-    agent1.circle = { agent1.rigidbody.position, 20.0f };
-    agent1.leftWhisker = Vector2Rotate(Vector2Normalize(agent1.rigidbody.velocity), -45.0f);
-    agent1.rightWhisker = Vector2Rotate(Vector2Normalize(agent1.rigidbody.velocity), 45.0f);
+    Tilemap tilemap(20, 15);
+    tilemap.RandomLevel();
+    tilemap.WallsAsNonTraversable();
+    tilemap.createAdjacencyList();
 
-    Agent agent2;
-    agent2.rigidbody.position = { SCREEN_WIDTH / 2.0f + 100, SCREEN_HEIGHT / 2.0f };
-    agent2.rigidbody.velocity = { -2.0f, -2.0f };
-    agent2.maxSpeed = 20.0f;
-    agent2.maxAcceleration = 1.0f;
-    agent2.circle = { agent2.rigidbody.position, 20.0f };
-    agent2.leftWhisker = Vector2Rotate(Vector2Normalize(agent2.rigidbody.velocity), -45.0f);
-    agent2.rightWhisker = Vector2Rotate(Vector2Normalize(agent2.rigidbody.velocity), 45.0f);
+    Vector2 characterPosition{ 0, 1 };
 
-    std::vector<Circle> obstacles;
+    SetTargetFPS(10);
 
     while (!WindowShouldClose())
     {
-        float deltaTime = GetFrameTime();
+        // Handle input
+        Vector2 newPosition = characterPosition;
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        if (IsKeyDown(KEY_W) && tilemap.isTileTraversable(characterPosition.x, characterPosition.y - 1))
+            newPosition.y--;
+        if (IsKeyDown(KEY_S) && tilemap.isTileTraversable(characterPosition.x, characterPosition.y + 1))
+            newPosition.y++;
+        if (IsKeyDown(KEY_A) && tilemap.isTileTraversable(characterPosition.x - 1, characterPosition.y))
+            newPosition.x--;
+        if (IsKeyDown(KEY_D) && tilemap.isTileTraversable(characterPosition.x + 1, characterPosition.y))
+            newPosition.x++;
+
+        if (newPosition.x != characterPosition.x || newPosition.y != characterPosition.y)
         {
-            Vector2 mousePos = GetMousePosition();
-            float obstacleRadius = 10.0f;
-            Circle obstacle = { mousePos, obstacleRadius };
-            obstacles.push_back(obstacle);
+            characterPosition = newPosition;
         }
-
-        for (const Circle& obstacle : obstacles)
-        {
-            agent1.obstacleAvoidance(obstacle, 0.5f);
-            agent2.obstacleAvoidance(obstacle, 0.5f);
-        }
-
-        agent1.rigidbody.position.x += agent1.rigidbody.velocity.x * deltaTime;
-        agent1.rigidbody.position.y += agent1.rigidbody.velocity.y * deltaTime;
-        agent1.circle.center = agent1.rigidbody.position;
-
-        agent2.rigidbody.position.x += agent2.rigidbody.velocity.x * deltaTime;
-        agent2.rigidbody.position.y += agent2.rigidbody.velocity.y * deltaTime;
-        agent2.circle.center = agent2.rigidbody.position;
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        DrawCircleV(agent1.circle.center, agent1.circle.radius, SKYBLUE);
-        DrawCircleV(agent2.circle.center, agent2.circle.radius, ORANGE);
+        tilemap.draw();
 
-        DrawLine(agent1.rigidbody.position.x, agent1.rigidbody.position.y,
-            agent1.rigidbody.position.x + agent1.leftWhisker.x * 60,
-            agent1.rigidbody.position.y + agent1.leftWhisker.y * 60, BLACK);
-
-        DrawLine(agent1.rigidbody.position.x, agent1.rigidbody.position.y,
-            agent1.rigidbody.position.x + agent1.rightWhisker.x * 60,
-            agent1.rigidbody.position.y + agent1.rightWhisker.y * 60, VIOLET);
-
-        DrawLine(agent2.rigidbody.position.x, agent2.rigidbody.position.y,
-            agent2.rigidbody.position.x + agent2.leftWhisker.x * 60,
-            agent2.rigidbody.position.y + agent2.leftWhisker.y * 60, BLACK);
-
-        DrawLine(agent2.rigidbody.position.x, agent2.rigidbody.position.y,
-            agent2.rigidbody.position.x + agent2.rightWhisker.x * 60,
-            agent2.rigidbody.position.y + agent2.rightWhisker.y * 60, VIOLET);
-
-        for (const Circle& obstacle : obstacles)
-        {
-            DrawCircleV(obstacle.center, obstacle.radius, GREEN);
-        }
+        // Draw character sprite
+        Rectangle characterRect{ characterPosition.x * TILE_SIZE, characterPosition.y * TILE_SIZE, TILE_SIZE, TILE_SIZE };
+        DrawRectangleRec(characterRect, DARKBLUE);
 
         EndDrawing();
     }
 
     CloseWindow();
+
     return 0;
 }
