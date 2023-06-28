@@ -2,7 +2,7 @@
 #include <vector>
 #include "raylib.h"
 
-const int TILE_SIZE = 50; 
+const int TILE_SIZE = 50;
 
 enum class TileType
 {
@@ -13,7 +13,7 @@ enum class TileType
 struct Tile
 {
     TileType type;
-    std::vector<int> adjacencyList; 
+    std::vector<int> adjacencyList;
 };
 
 class Tilemap
