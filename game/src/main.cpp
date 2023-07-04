@@ -1,194 +1,264 @@
-#include <iostream>
-#include <vector>
 #include "raylib.h"
+#include <vector>
+#include <queue>
+#include <iostream>
+#include <sstream>
 
-const int TILE_SIZE = 50;
+#define SCREEN_WIDTH 1000
+#define SCREEN_HEIGHT 1000
+#define TILE_SIZE 80
 
-enum class TileType
-{
-    Floor,
-    Wall
+struct Tile {
+    Vector2 position;
+    Color color;
+    bool isWall;
+    std::vector<Tile*> connectedTiles;
+    float costToReach;
+    Tile* previousNode;
+    bool visited;
+    bool operator==(const Tile& other) const {
+        return position.x == other.position.x && position.y == other.position.y;
+    }
 };
 
-struct Tile
-{
-    TileType type;
-    std::vector<int> adjacencyList;
+struct Character {
+    Vector2 position;
+    Rectangle bounds;
+    float speed;
 };
 
-class Tilemap
-{
-public:
-    Tilemap(int width, int height) : width(width), height(height)
-    {
-        tiles.resize(width * height);
+std::vector<Tile> tiles;
+Character character;
+Tile* startNode;
+Tile* goalNode;
+Tile* currentNode;
+std::vector<Vector2> playerPath;
+std::string intToString(int value) {
+    std::stringstream ss;
+    ss << value;
+    return ss.str();
+}
+
+void generateTiles() {
+    const int rows = 8;
+    const int cols = 8;
+
+    int totalTiles = rows * cols;
+    int wallCount = static_cast<int>(totalTiles * 0.2);
+
+    for (int i = 0; i < totalTiles; ++i) {
+        Vector2 position = { 100 + (i % cols) * TILE_SIZE, 100 + (i / cols) * TILE_SIZE };
+        Color color = WHITE;  // Set the color to white (255, 255, 255, 255)
+        tiles.push_back({ position, color, false, {}, FLT_MAX, nullptr, false });
     }
 
-    Tile& getTile(int x, int y)
-    {
-        return tiles[y * width + x];
-    }
 
-    int getWidth() const
-    {
-        return width;
+    for (int i = 0; i < wallCount; ++i) {
+        int randomIndex = GetRandomValue(0, totalTiles - 1);
+        Tile& tile = tiles[randomIndex];
+        if (!tile.isWall) {
+            tile.isWall = true;
+            tile.color = WHITE;
+        }
+        else {
+            --i;
+        }
     }
+    for (int i = 0; i < totalTiles; ++i) {
+        int row = i / cols;
+        int col = i % cols;
 
-    int getHeight() const
-    {
-        return height;
+        Tile& currentTile = tiles[i];
+
+        if (row > 0) {
+            currentTile.connectedTiles.push_back(&tiles[i - cols]); // Add top tile
+        }
+
+        if (row < rows - 1) {
+            currentTile.connectedTiles.push_back(&tiles[i + cols]); // Add bottom tile
+        }
+
+        if (col > 0) {
+            currentTile.connectedTiles.push_back(&tiles[i - 1]); // Add left tile
+        }
+
+        if (col < cols - 1) {
+            currentTile.connectedTiles.push_back(&tiles[i + 1]); // Add right tile
+        }
     }
+}
 
-    void RandomLevel()
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                Tile& tile = getTile(x, y);
-                tile.type = (rand() % 5 == 0) ? TileType::Wall : TileType::Floor;
-            }
+void drawAdjacency(const std::vector<Tile>& tiles) {
+    const Color lineColor = PINK;
+    const Color wallColor = DARKGRAY;
+
+    for (const Tile& tile : tiles) {
+        if (tile.isWall) {
+            DrawRectangle(static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), TILE_SIZE, TILE_SIZE, wallColor);
+        }
+        else {
+            DrawRectangle(static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), TILE_SIZE, TILE_SIZE, tile.color);
+        }
+
+        Vector2 circleCenter = { tile.position.x + TILE_SIZE / 2, tile.position.y + TILE_SIZE / 2 };
+        DrawCircle(static_cast<int>(circleCenter.x), static_cast<int>(circleCenter.y), TILE_SIZE / 4, GREEN);
+
+        for (const Tile* connectedTile : tile.connectedTiles) {
+            Vector2 connectedCenter = { connectedTile->position.x + TILE_SIZE / 2, connectedTile->position.y + TILE_SIZE / 2 };
+            DrawLineEx(circleCenter, connectedCenter, 2, lineColor);
         }
     }
 
-    void WallsAsNonTraversable()
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                Tile& tile = getTile(x, y);
-                if (tile.type == TileType::Wall)
-                {
-                    tile.adjacencyList.clear(); // Walls have no adjacency
+    // Draw  lines through the center of connecting tiles
+    for (const Tile& tile : tiles) {
+        Vector2 currentCenter = { tile.position.x + TILE_SIZE / 2, tile.position.y + TILE_SIZE / 2 };
+        for (const Tile* connectedTile : tile.connectedTiles) {
+            Vector2 connectedCenter = { connectedTile->position.x + TILE_SIZE / 2, connectedTile->position.y + TILE_SIZE / 2 };
+            DrawLineEx(currentCenter, connectedCenter, 1, lineColor); // Draw line from current tile to connected tile with thickness 1
+        }
+    }
+
+    // Draw line on player's path
+    if (playerPath.size() > 1) {
+        for (size_t i = 0; i < playerPath.size() - 1; ++i) {
+            Vector2 currentPos = playerPath[i];
+            Vector2 nextPos = playerPath[i + 1];
+            Vector2 lineStart = { currentPos.x + TILE_SIZE / 2, currentPos.y + TILE_SIZE / 2 };
+            Vector2 lineEnd = { nextPos.x + TILE_SIZE / 2, nextPos.y + TILE_SIZE / 2 };
+            DrawLineEx(lineStart, lineEnd, 2, BLUE);
+        }
+    }
+}
+
+
+void initCharacter() {
+    character.position = tiles[0].position;
+    character.bounds = { character.position.x + 10, character.position.y + 10, TILE_SIZE - 20, TILE_SIZE - 20 };
+    character.speed = 2.0f;
+}
+
+void updateCharacterMovement() {
+    if (IsKeyDown(KEY_W) && character.position.y > 100) {
+        character.position.y -= character.speed;
+        character.bounds.y -= character.speed;
+    }
+    else if (IsKeyDown(KEY_S) && character.position.y < (100 + TILE_SIZE * 7)) {
+        character.position.y += character.speed;
+        character.bounds.y += character.speed;
+    }
+
+    if (IsKeyDown(KEY_A) && character.position.x > 100) {
+        character.position.x -= character.speed;
+        character.bounds.x -= character.speed;
+    }
+    else if (IsKeyDown(KEY_D) && character.position.x < (100 + TILE_SIZE * 7)) {
+        character.position.x += character.speed;
+        character.bounds.x += character.speed;
+    }
+}
+
+void runDijkstra() {
+    std::priority_queue<std::pair<float, Tile*>, std::vector<std::pair<float, Tile*>>, std::greater<std::pair<float, Tile*>>> pq;
+    pq.push({ 0, startNode });
+
+    while (!pq.empty()) {
+        Tile* current = pq.top().second;
+        pq.pop();
+
+        if (current == goalNode) {
+            break;
+        }
+
+        current->visited = true;
+
+        for (Tile* neighbor : current->connectedTiles) {
+            if (!neighbor->visited && !neighbor->isWall) {
+                float newCost = current->costToReach + 1;
+                if (newCost < neighbor->costToReach) {
+                    neighbor->costToReach = newCost;
+                    neighbor->previousNode = current;
+                    pq.push({ newCost, neighbor });
                 }
             }
         }
+
+        currentNode = current;
+    }
+}
+
+void visualizeDijkstra() {
+    const Color pathColor = RED;
+    const Color visitedColor = GREEN;
+    const Color textColor = GRAY;
+    const Color currentColor = BLUE;
+
+    std::vector<Tile>& mutableTiles = const_cast<std::vector<Tile>&>(tiles);
+
+    Tile* pathNode = goalNode;
+
+    while (pathNode != nullptr) {
+        mutableTiles[pathNode - &tiles[0]].color = pathColor;
+        pathNode = pathNode->previousNode;
     }
 
-    void createAdjacencyList()
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                Tile& tile = getTile(x, y);
-                tile.adjacencyList.clear();
-
-                if (tile.type == TileType::Floor)
-                {
-                    if (y > 0 && getTile(x, y - 1).type == TileType::Floor)
-                        tile.adjacencyList.push_back((y - 1) * width + x);
-
-                    if (y < height - 1 && getTile(x, y + 1).type == TileType::Floor)
-                        tile.adjacencyList.push_back((y + 1) * width + x);
-
-                    if (x > 0 && getTile(x - 1, y).type == TileType::Floor)
-                        tile.adjacencyList.push_back(y * width + (x - 1));
-
-                    if (x < width - 1 && getTile(x + 1, y).type == TileType::Floor)
-                        tile.adjacencyList.push_back(y * width + (x + 1));
-                }
-            }
-        }
-    }
-
-    bool isTileTraversable(int x, int y)
-    {
-        if (x < 0 || x >= width || y < 0 || y >= height)
-            return false;
-
-        return getTile(x, y).type == TileType::Floor;
-    }
-
-    void draw()
-    {
-        for (int y = 0; y < height; ++y)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                Tile& tile = getTile(x, y);
-                Rectangle rect{ x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE };
-
-                switch (tile.type)
-                {
-                case TileType::Floor:
-                    DrawRectangleRec(rect, WHITE);
-                    break;
-
-                case TileType::Wall:
-                    DrawRectangleRec(rect, GRAY);
-                    break;
-                }
-
-                DrawRectangleLinesEx(rect, 1, BLACK);
-
-                // Draw adjacency circles and lines
-                if (tile.type == TileType::Floor)
-                {
-                    Vector2 center = { (rect.x + rect.width / 2), (rect.y + rect.height / 2) };
-                    DrawCircle(center.x, center.y, 5, GREEN);
-
-                    for (int adjTileIndex : tile.adjacencyList)
-                    {
-                        Tile& adjTile = tiles[adjTileIndex];
-                        Rectangle adjRect{ adjTileIndex % width * TILE_SIZE, adjTileIndex / width * TILE_SIZE, TILE_SIZE, TILE_SIZE };
-                        Vector2 adjCenter = { (adjRect.x + adjRect.width / 2), (adjRect.y + adjRect.height / 2) };
-                        DrawLineEx(center, adjCenter, 1, GREEN);
-                    }
-                }
-            }
-        }
-    }
-
-private:
-    int width;
-    int height;
-    std::vector<Tile> tiles;
-};
-int main()
-{
-    const int screenWidth = 800;
-    const int screenHeight = 600;
-
-    InitWindow(screenWidth, screenHeight, "Tilemap_Lab 4");
-
-    Tilemap tilemap(20, 15);
-    tilemap.RandomLevel();
-    tilemap.WallsAsNonTraversable();
-    tilemap.createAdjacencyList();
-
-    Vector2 characterPosition{ 0, 1 };
-
-    SetTargetFPS(10);
-
-    while (!WindowShouldClose())
-    {
-        // Handle input
-        Vector2 newPosition = characterPosition;
-
-        if (IsKeyDown(KEY_W) && tilemap.isTileTraversable(characterPosition.x, characterPosition.y - 1))
-            newPosition.y--;
-        if (IsKeyDown(KEY_S) && tilemap.isTileTraversable(characterPosition.x, characterPosition.y + 1))
-            newPosition.y++;
-        if (IsKeyDown(KEY_A) && tilemap.isTileTraversable(characterPosition.x - 1, characterPosition.y))
-            newPosition.x--;
-        if (IsKeyDown(KEY_D) && tilemap.isTileTraversable(characterPosition.x + 1, characterPosition.y))
-            newPosition.x++;
-
-        if (newPosition.x != characterPosition.x || newPosition.y != characterPosition.y)
-        {
-            characterPosition = newPosition;
+    for (Tile& tile : mutableTiles) {
+        if (tile.visited) {
+            tile.color = visitedColor;
+            std::string costText = intToString(static_cast<int>(tile.costToReach));
+            DrawText(costText.c_str(), static_cast<int>(tile.position.x + TILE_SIZE / 2 - MeasureText(costText.c_str(), 20) / 2), static_cast<int>(tile.position.y + TILE_SIZE / 2 - 10), 20, textColor);
         }
 
+    }
+
+
+}
+
+int main() {
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Dijkstra's Algorithm");
+
+    generateTiles();
+
+    startNode = &tiles[0];
+    goalNode = &tiles[63];
+    currentNode = startNode;
+
+    initCharacter();
+
+    SetTargetFPS(60);
+
+    while (!WindowShouldClose()) {
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        tilemap.draw();
+        updateCharacterMovement();
 
-        // Draw character sprite
-        Rectangle characterRect{ characterPosition.x * TILE_SIZE, characterPosition.y * TILE_SIZE, TILE_SIZE, TILE_SIZE };
-        DrawRectangleRec(characterRect, DARKBLUE);
+        for (Tile& tile : tiles) {
+            if (CheckCollisionRecs(character.bounds, { tile.position.x, tile.position.y, TILE_SIZE, TILE_SIZE })) {
+                if (tile.isWall) {
+                    character.position = currentNode->position;
+                    character.bounds.x = currentNode->position.x + 10;
+                    character.bounds.y = currentNode->position.y + 10;
+                }
+                else {
+                    currentNode = &tile;
+                    playerPath.push_back(currentNode->position); // Store player's path
+                }
+            }
+        }
+
+
+
+        for (Tile& tile : tiles) {
+            tile.visited = false;
+            tile.costToReach = FLT_MAX;
+            tile.previousNode = nullptr;
+        }
+
+        runDijkstra();
+        visualizeDijkstra();
+        drawAdjacency(tiles);
+
+        DrawRectangleRec(character.bounds, BLUE);
 
         EndDrawing();
     }
