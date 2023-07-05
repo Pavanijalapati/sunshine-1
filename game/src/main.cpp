@@ -6,7 +6,7 @@
 
 #define SCREEN_WIDTH 1000
 #define SCREEN_HEIGHT 1000
-#define TILE_SIZE 80
+#define TILE_SIZE 100
 
 struct Tile {
     Vector2 position;
@@ -22,6 +22,7 @@ struct Tile {
 };
 
 struct Character {
+    Texture2D sprite;
     Vector2 position;
     Rectangle bounds;
     float speed;
@@ -33,6 +34,11 @@ Tile* startNode;
 Tile* goalNode;
 Tile* currentNode;
 std::vector<Vector2> playerPath;
+bool debugMode = true;
+bool showBorders = true;
+bool showAdjacency = true;
+bool showPathInfo = true;
+
 std::string intToString(int value) {
     std::stringstream ss;
     ss << value;
@@ -100,170 +106,234 @@ void drawAdjacency(const std::vector<Tile>& tiles) {
             DrawRectangle(static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), TILE_SIZE, TILE_SIZE, tile.color);
         }
 
-        Vector2 circleCenter = { tile.position.x + TILE_SIZE / 2, tile.position.y + TILE_SIZE / 2 };
-        DrawCircle(static_cast<int>(circleCenter.x), static_cast<int>(circleCenter.y), TILE_SIZE / 4, GREEN);
-
-        for (const Tile* connectedTile : tile.connectedTiles) {
-            Vector2 connectedCenter = { connectedTile->position.x + TILE_SIZE / 2, connectedTile->position.y + TILE_SIZE / 2 };
-            DrawLineEx(circleCenter, connectedCenter, 2, lineColor);
+        if (showBorders) {
+            DrawRectangleLines(static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), TILE_SIZE, TILE_SIZE, GRAY);
         }
-    }
 
-    // Draw  lines through the center of connecting tiles
-    for (const Tile& tile : tiles) {
-        Vector2 currentCenter = { tile.position.x + TILE_SIZE / 2, tile.position.y + TILE_SIZE / 2 };
-        for (const Tile* connectedTile : tile.connectedTiles) {
-            Vector2 connectedCenter = { connectedTile->position.x + TILE_SIZE / 2, connectedTile->position.y + TILE_SIZE / 2 };
-            DrawLineEx(currentCenter, connectedCenter, 1, lineColor); // Draw line from current tile to connected tile with thickness 1
+        if (showAdjacency) {
+            Vector2 circleCenter = { tile.position.x + TILE_SIZE / 2, tile.position.y + TILE_SIZE / 2 };
+            DrawCircle(static_cast<int>(circleCenter.x), static_cast<int>(circleCenter.y), TILE_SIZE / 4, GREEN);
+
+            for (const Tile* connectedTile : tile.connectedTiles) {
+                Vector2 lineStart = { circleCenter.x, circleCenter.y };
+                Vector2 lineEnd = { connectedTile->position.x + TILE_SIZE / 2, connectedTile->position.y + TILE_SIZE / 2 };
+                DrawLineEx(lineStart, lineEnd, 2, lineColor);
+            }
         }
-    }
 
-    // Draw line on player's path
-    if (playerPath.size() > 1) {
-        for (size_t i = 0; i < playerPath.size() - 1; ++i) {
-            Vector2 currentPos = playerPath[i];
-            Vector2 nextPos = playerPath[i + 1];
-            Vector2 lineStart = { currentPos.x + TILE_SIZE / 2, currentPos.y + TILE_SIZE / 2 };
-            Vector2 lineEnd = { nextPos.x + TILE_SIZE / 2, nextPos.y + TILE_SIZE / 2 };
-            DrawLineEx(lineStart, lineEnd, 2, BLUE);
+        if (showPathInfo) {
+            std::string cost = intToString(static_cast<int>(tile.costToReach));
+            DrawText(cost.c_str(), static_cast<int>(tile.position.x + TILE_SIZE / 2 - MeasureText(cost.c_str(), 20) / 2),
+                static_cast<int>(tile.position.y + TILE_SIZE / 2 - 10), 20,PURPLE );
         }
     }
 }
 
-
-void initCharacter() {
-    character.position = tiles[0].position;
-    character.bounds = { character.position.x + 10, character.position.y + 10, TILE_SIZE - 20, TILE_SIZE - 20 };
-    character.speed = 2.0f;
-}
-
-void updateCharacterMovement() {
-    if (IsKeyDown(KEY_W) && character.position.y > 100) {
-        character.position.y -= character.speed;
-        character.bounds.y -= character.speed;
-    }
-    else if (IsKeyDown(KEY_S) && character.position.y < (100 + TILE_SIZE * 7)) {
-        character.position.y += character.speed;
-        character.bounds.y += character.speed;
+void drawPath(const std::vector<Vector2>& path) {
+    if (path.empty()) {
+        return;
     }
 
-    if (IsKeyDown(KEY_A) && character.position.x > 100) {
-        character.position.x -= character.speed;
-        character.bounds.x -= character.speed;
-    }
-    else if (IsKeyDown(KEY_D) && character.position.x < (100 + TILE_SIZE * 7)) {
-        character.position.x += character.speed;
-        character.bounds.x += character.speed;
+    for (size_t i = 0; i < path.size() - 1; ++i) {
+        Vector2 lineStart = { path[i].x + TILE_SIZE / 2, path[i].y + TILE_SIZE / 2 };
+        Vector2 lineEnd = { path[i + 1].x + TILE_SIZE / 2, path[i + 1].y + TILE_SIZE / 2 };
+        DrawLineEx(lineStart, lineEnd, 4, BLUE);
     }
 }
 
-void runDijkstra() {
+void resetTiles() {
+    for (Tile& tile : tiles) {
+        tile.costToReach = FLT_MAX;
+        tile.previousNode = nullptr;
+        tile.visited = false;
+    }
+}
+
+float heuristic(const Tile* tile, const Tile* goal) {
+  
+    return std::abs(tile->position.x - goal->position.x) + std::abs(tile->position.y - goal->position.y);
+}
+
+void calculatePath(Tile* start, Tile* goal) {
+    resetTiles();
+
     std::priority_queue<std::pair<float, Tile*>, std::vector<std::pair<float, Tile*>>, std::greater<std::pair<float, Tile*>>> pq;
-    pq.push({ 0, startNode });
+
+    start->costToReach = 0.0f;
+    pq.push(std::make_pair(start->costToReach + heuristic(start, goal), start));  // Add the heuristic value to the cost
 
     while (!pq.empty()) {
         Tile* current = pq.top().second;
         pq.pop();
 
-        if (current == goalNode) {
+        if (current == goal) {
             break;
         }
 
         current->visited = true;
 
         for (Tile* neighbor : current->connectedTiles) {
-            if (!neighbor->visited && !neighbor->isWall) {
-                float newCost = current->costToReach + 1;
+            if (!neighbor->isWall && !neighbor->visited) {
+                float newCost = current->costToReach + 1.0f;
+
                 if (newCost < neighbor->costToReach) {
                     neighbor->costToReach = newCost;
                     neighbor->previousNode = current;
-                    pq.push({ newCost, neighbor });
+                    pq.push(std::make_pair(newCost + heuristic(neighbor, goal), neighbor));  // Add the heuristic value to the cost
+                }
+            }
+        }
+    }
+}
+
+void calculatePlayerPath() {
+    playerPath.clear();
+    Tile* current = goalNode;
+
+    while (current != nullptr) {
+        playerPath.push_back(current->position);
+        current = current->previousNode;
+    }
+}
+
+void initializeGame() {
+    generateTiles();
+    character.position = tiles[0].position;
+    character.bounds = { character.position.x, character.position.y, TILE_SIZE, TILE_SIZE };
+    startNode = &tiles[0];
+    goalNode = &tiles[tiles.size() - 1];
+    currentNode = startNode;
+    calculatePath(startNode, goalNode);
+    calculatePlayerPath();
+}
+
+void updateGame() {
+    const float speed = 2.0f;
+
+    if (IsKeyPressed(KEY_GRAVE))
+        debugMode = !debugMode;
+
+    if (debugMode) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            Vector2 mousePos = GetMousePosition();
+
+            for (Tile& tile : tiles) {
+                if (!tile.isWall && CheckCollisionPointRec(mousePos, { tile.position.x, tile.position.y, TILE_SIZE, TILE_SIZE })) {
+                    goalNode = &tile;
+         
+                    calculatePath(startNode, goalNode);
+                    calculatePlayerPath();
+                    break;
                 }
             }
         }
 
-        currentNode = current;
-    }
-}
+        if (!playerPath.empty()) {
+            Vector2 targetPosition = playerPath.back();
+            Vector2 moveVector = { targetPosition.x - character.position.x, targetPosition.y - character.position.y };
+            float distance = sqrt(moveVector.x * moveVector.x + moveVector.y * moveVector.y);
 
-void visualizeDijkstra() {
-    const Color pathColor = RED;
-    const Color visitedColor = GREEN;
-    const Color textColor = GRAY;
-    const Color currentColor = BLUE;
+            if (distance > speed) {
+                moveVector.x /= distance;
+                moveVector.y /= distance;
+                character.position.x += moveVector.x * speed;
+                character.position.y += moveVector.y * speed;
+            }
+            else {
+                character.position = targetPosition;
+                playerPath.pop_back();
+            }
 
-    std::vector<Tile>& mutableTiles = const_cast<std::vector<Tile>&>(tiles);
-
-    Tile* pathNode = goalNode;
-
-    while (pathNode != nullptr) {
-        mutableTiles[pathNode - &tiles[0]].color = pathColor;
-        pathNode = pathNode->previousNode;
-    }
-
-    for (Tile& tile : mutableTiles) {
-        if (tile.visited) {
-            tile.color = visitedColor;
-            std::string costText = intToString(static_cast<int>(tile.costToReach));
-            DrawText(costText.c_str(), static_cast<int>(tile.position.x + TILE_SIZE / 2 - MeasureText(costText.c_str(), 20) / 2), static_cast<int>(tile.position.y + TILE_SIZE / 2 - 10), 20, textColor);
+            character.bounds.x = character.position.x;
+            character.bounds.y = character.position.y;
         }
 
+        if (IsKeyPressed(KEY_LEFT)) {
+            showBorders = !showBorders;
+        }
+
+        if (IsKeyPressed(KEY_UP)) {
+            showAdjacency = !showAdjacency;
+        }
+
+        if (IsKeyPressed(KEY_RIGHT)) {
+            showPathInfo = !showPathInfo;
+        }
     }
 
+    if (IsKeyDown(KEY_D)) {
+        character.position.x += speed;
+    }
 
+    if (IsKeyDown(KEY_A)) {
+        character.position.x -= speed;
+    }
+
+    if (IsKeyDown(KEY_W)) {
+        character.position.y -= speed;
+    }
+
+    if (IsKeyDown(KEY_S)) {
+        character.position.y += speed;
+    }
+
+    character.bounds.x = character.position.x;
+    character.bounds.y = character.position.y;
+}
+
+void drawGame() {
+    BeginDrawing();
+    ClearBackground(RAYWHITE);
+
+    drawAdjacency(tiles);
+    drawPath(playerPath);
+
+    DrawRectangleRec(character.bounds, RED);
+
+
+    if (debugMode) {
+        DrawText("Press SPACE to step through pathfinding", 10, 10, 20, BLACK);
+        DrawText("Press LEFT to toggle tile borders", 10, 40, 20, BLACK);
+        DrawText("Press UP to toggle tile adjacency", 10, 70, 20, BLACK);
+        DrawText("Press RIGHT to toggle path information", 10, 100, 20, BLACK);
+
+        if (currentNode == goalNode) {
+            DrawText("Press SPACE to restart", 10, 130, 20, BLACK);
+        }
+        else if (!playerPath.empty()) {
+            DrawText("Press SPACE to step forward", 10, 130, 20, BLACK);
+        }
+        if (showPathInfo) {
+            for (const Tile& tile : tiles) {
+                std::string cost = intToString(static_cast<int>(tile.costToReach));
+                std::string heuristicValue = intToString(static_cast<int>(heuristic(&tile, goalNode)));
+                std::string info = cost + " + " + heuristicValue;
+
+                DrawText(info.c_str(), static_cast<int>(tile.position.x + TILE_SIZE / 2 - MeasureText(info.c_str(), 20) / 2),
+                    static_cast<int>(tile.position.y + TILE_SIZE / 2 - 10), 20, BLACK);
+            }
+        }
+    }
+
+    EndDrawing();
 }
 
 int main() {
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Dijkstra's Algorithm");
-
-    generateTiles();
-
-    startNode = &tiles[0];
-    goalNode = &tiles[63];
-    currentNode = startNode;
-
-    initCharacter();
-
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Pathfinding Algorithm Visualization");
     SetTargetFPS(60);
 
+    
+
+    initializeGame();
+
     while (!WindowShouldClose()) {
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-
-        updateCharacterMovement();
-
-        for (Tile& tile : tiles) {
-            if (CheckCollisionRecs(character.bounds, { tile.position.x, tile.position.y, TILE_SIZE, TILE_SIZE })) {
-                if (tile.isWall) {
-                    character.position = currentNode->position;
-                    character.bounds.x = currentNode->position.x + 10;
-                    character.bounds.y = currentNode->position.y + 10;
-                }
-                else {
-                    currentNode = &tile;
-                    playerPath.push_back(currentNode->position); // Store player's path
-                }
-            }
-        }
-
-
-
-        for (Tile& tile : tiles) {
-            tile.visited = false;
-            tile.costToReach = FLT_MAX;
-            tile.previousNode = nullptr;
-        }
-
-        runDijkstra();
-        visualizeDijkstra();
-        drawAdjacency(tiles);
-
-        DrawRectangleRec(character.bounds, BLUE);
-
-        EndDrawing();
+        updateGame();
+        drawGame();
     }
 
     CloseWindow();
+
+    
 
     return 0;
 }
