@@ -319,7 +319,7 @@ void drawGame() {
 }
 
 int main() {
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Pathfinding Algorithm Visualization");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Assignment 2 _ jalapatiPavani_ChoiEunjae");
     SetTargetFPS(60);
 
     
