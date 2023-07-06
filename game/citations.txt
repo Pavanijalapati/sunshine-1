@@ -1,0 +1,10 @@
+Resources we used to complete the assignment:
+
+
+1---we took the reference lab 5 work as base for pathfinding
+
+2---https://www.tutorialspoint.com/cplusplus-program-for-dijkstra-s-       shortest-path-algorithm
+
+3---https://www.educative.io/answers/how-to-implement-dijkstras-algorithm-in-cpp
+
+4--we also took the help of chat gpt for implementing the debug view and also for the heuristic values, the proof for this will be posted as pictures on blackboard submission
